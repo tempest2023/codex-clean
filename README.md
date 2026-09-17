@@ -15,6 +15,8 @@ codex-clean --restart  # quit the app first if it is already running
 
 When your Codex and Work usage runs out, the desktop app shows a persistent card:
 
+![The usage banner: "You're out of Codex and Work usage", with Reset usage and Add Credits buttons](docs/images/out-of-usage-banner.png)
+
 ```text
 You're out of Codex and Work usage
 Your rate limit resets on <date>.
@@ -123,6 +125,12 @@ codex-clean
               +-- patched history.pushState / replaceState, popstate, hashchange
               +-- 1 s safety sweep
 ```
+
+Attaching over CDP shows a pile of targets, and only one kind renders the main UI. This is the
+reason the watcher filters on the `app://-/index.html` prefix instead of just taking the first
+page it finds:
+
+![chrome://inspect listing the Codex targets, including the app://-/index.html renderers](docs/images/cdp-targets.png)
 
 The blocker is intentionally boring. It walks `<aside>` elements, checks whether the text
 contains a usage marker, and sets `display: none !important`:

@@ -16,6 +16,8 @@ Codex / ChatGPT Desktop 在你用完 Codex 和 Work 额度之后，会在界面�
 
 额度用完之后，界面上会出现这张卡片：
 
+![Codex Desktop 里的 usage 提示框：You’re out of Codex and Work usage，带 Reset usage 和 Add Credits 两个按钮](images/out-of-usage-banner.png)
+
 ```text
 You’re out of Codex and Work usage
 Your rate limit resets on Sep 19, 1:35 AM.
@@ -80,6 +82,10 @@ ChatGPT  app://-/index.html?initialRoute=...
 ChatGPT  app://-/index.html
 ChatGPT  app://-/detached-window.html
 ```
+
+实际打开 `chrome://inspect` 看到的样子是这样的——同一个 `localhost:9222` 下面挂着 sandbox、`index.html`、`avatar-overlay`、`detached-window` 一堆目标：
+
+![chrome://inspect 里的 Devices 页面，Remote Target localhost:9222 下列出 sandbox、app://-/index.html、app://-/detached-window.html 等目标](images/cdp-targets.png)
 
 这里有个不起眼但重要的点：真正承载主界面的是 `app://-/index.html`，不是 `sandbox`，也不是 `detached-window`。连错目标，就会得到"界面上明明有这段文字，但 `document.body.innerText` 里找不到"的结果。
 

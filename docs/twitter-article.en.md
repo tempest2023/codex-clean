@@ -7,6 +7,8 @@
 
 The moment your quota runs out, the Codex desktop app pins a card to the interface:
 
+![The banner in the Codex desktop app: "You're out of Codex and Work usage", with Reset usage and Add Credits buttons](images/out-of-usage-banner.png)
+
 ```text
 You’re out of Codex and Work usage
 Your rate limit resets on Sep 19, 1:35 AM.
@@ -58,6 +60,11 @@ sandbox
 ChatGPT  app://-/index.html
 ChatGPT  app://-/detached-window.html
 ```
+
+Here is what `chrome://inspect` actually shows, with every target hanging off the same
+`localhost:9222`:
+
+![chrome://inspect Devices page with the localhost:9222 remote target listing sandbox, app://-/index.html and detached-window renderers](images/cdp-targets.png)
 
 Only `app://-/index.html` renders the main UI. Attach to the wrong one and you get "the text is
 clearly on screen, but `innerText` does not contain it."
@@ -198,9 +205,11 @@ https://github.com/tempest2023/codex-clean
 
 ## Publishing notes (do not paste into the article)
 
-- Suggested images: (1) the original banner with `Reset usage` / `Add Credits`, (2) the `<aside>`
-  highlighted in DevTools, (3) `tail -f watcher.log` showing `injected: app://-/index.html`.
-  The DevTools shot explains the whole thing best.
+- Two images are already embedded in this article and live in the repo:
+  `images/out-of-usage-banner.png` (what is being removed) and `images/cdp-targets.png` (why the
+  target has to be chosen carefully).
+- The one still worth adding is a DevTools shot with the `<aside>` selected, showing the `border`
+  and `rounded-3xl` classes. That single image explains the "hid the wrong layer" dead end.
 - Single-tweet version:
   > Codex Desktop's "out of Codex and Work usage" banner has no official off switch. I hooked into
   > Electron over CDP, found the `<aside>`, set `display:none`, then added a resident watcher to

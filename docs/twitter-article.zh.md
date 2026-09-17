@@ -7,6 +7,8 @@
 
 额度用完的那一刻，Codex 会在界面上常驻一张卡片：
 
+![Codex Desktop 界面上的 usage 提示框：You’re out of Codex and Work usage，右侧是 Reset usage 和 Add Credits 按钮](images/out-of-usage-banner.png)
+
 ```text
 You’re out of Codex and Work usage
 Your rate limit resets on Sep 19, 1:35 AM.
@@ -54,6 +56,10 @@ sandbox
 ChatGPT  app://-/index.html
 ChatGPT  app://-/detached-window.html
 ```
+
+实际打开 `chrome://inspect` 是这样的，同一个 `localhost:9222` 下挂着一串目标：
+
+![chrome://inspect 的 Devices 页面，Remote Target localhost:9222 下列出 sandbox、app://-/index.html、detached-window 等多个 renderer](images/cdp-targets.png)
 
 真正承载主界面的只有 `app://-/index.html`。连错目标，就会得到"界面上明明有这段文字，但 `innerText` 里找不到"的结果。
 
@@ -182,7 +188,8 @@ https://github.com/tempest2023/codex-clean
 
 ## 发布备注（不要复制到正文）
 
-- 配图建议：① 原始 banner 截图（含 Reset usage / Add Credits）；② DevTools 里 `<aside>` 被选中的 DOM 截图；③ `tail -f watcher.log` 出现 `injected: app://-/index.html` 的截图。第 ② 张最能说明问题。
+- 文章里已经放了两张图，都在本仓库里：`images/out-of-usage-banner.png`（我到底在去掉什么）、`images/cdp-targets.png`（为什么必须挑对 renderer）。
+- 还想补的话，最值得加的是第 ② 张：DevTools 里 `<aside>` 被选中、旁边能看到 `border` / `rounded-3xl` 那串类的 DOM 截图，它同时解释了"隐藏错了层级"那个坑。
 - 篇幅：中文正文约 1600 字，适合 X Article 长文格式。
 - 如果只发一条 tweet 而不是长文，用这句：
   > Codex Desktop 的 "You're out of Codex and Work usage" 提示框没有任何官方配置能关掉。我最后用 CDP 连进 Electron，找到那个 `<aside>`，把它 `display:none`，再加一个常驻 watcher 让它扛住 React 重渲染和切换 chat。200 行，MIT：https://github.com/tempest2023/codex-clean
