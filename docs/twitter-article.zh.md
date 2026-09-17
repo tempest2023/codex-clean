@@ -1,25 +1,31 @@
 # X Article 草稿（中文）
 
-> 建议标题：**《关不掉的提示框：我给 Codex Desktop 做了一次外科手术》**
+> 建议标题：**《关不掉的Usage提示框：我给 Codex Desktop 做了一次外科手术》**
 > 备选标题：**《官方配置关不掉它，所以我写了 200 行脚本》**
 
 ---
 
-额度用完的那一刻，Codex 会在界面上常驻一张卡片：
+额度用完的那一刻，Codex 会在界面上常驻一个提醒：
 
 ![Codex Desktop 界面上的 usage 提示框：You’re out of Codex and Work usage，右侧是 Reset usage 和 Add Credits 按钮](images/out-of-usage-banner.png)
 
 ```text
 You’re out of Codex and Work usage
-Your rate limit resets on Sep 19, 1:35 AM.
+Your rate limit resets on Xxxxx.
 Use one of your rate limit resets or add credits to continue now.
 ```
 
-这不是一个 bug。提醒我额度用完了完全合理。真正的问题是它会一直挂在那里，每次打开都要看见一遍。
+这不是一个 bug。提醒我额度用完了完全合理。真正的问题是它会一直挂在那里，每次打开都要看见一遍。它严重影响我的日常体验, 总是遮挡我看 Codex 的输出.
 
-于是我想把它关掉。我也给自己定了一条底线：**不改服务端逻辑，不绕过 rate limit，只隐藏这个本地 UI 元素。**
+什么? 你问我怎么没有额度了还能继续和 Codex 对话? 那就是另一个故事了, 如果评论的人多的话, 我会单独开一篇文章讲一下 Codex Router.
+
+我非常想把它关掉，但是这里并没有关闭按钮。但我也给自己定了一条底线：**不改服务端逻辑，不绕过 rate limit，只隐藏这个本地 UI 元素。**
 
 最后的结果是 `codex-clean`，一个 200 行出头的 macOS 小工具。但中间走了三个死胡同，架构还推翻重做了一次。这个过程比脚本本身有意思，所以写下来。
+
+如果你想下载使用, 只需要 10s, 即下即用, 兼容你的 Codex App. (Macbook Only, Windows 请让你的 codex 基于我的 codex-clean 写一个新的启动脚本)
+
+https://github.com/tempest2023/codex-clean
 
 ## 一、官方配置关不掉它
 
@@ -165,6 +171,8 @@ v1 的架构里有一个隐含假设：脚本启动时存在的那个 renderer �
 重置 usage
 ```
 
+他不会给你带来任何安全隐患, 只是一个 UI 修改.
+
 它做的全部事情就是 `display: none`。服务端的额度限制照常生效，该等就等。只是这张卡片不再出现在我眼前。
 
 两个诚实的说明：
@@ -174,11 +182,7 @@ v1 的架构里有一个隐含假设：脚本启动时存在的那个 renderer �
 
 ## 最后
 
-整个过程里真正的收获有两条。
-
-**匹配语义，不要匹配样式。** 类名和 DOM 结构都是实现细节，文本才更接近意图。选择匹配文本，让这个东西在改版之后仍然有较大概率继续工作。
-
-**"能用"和"可靠"是两个不同的问题。** v1 在单次会话里完全能用，直到我做了那个再普通不过的动作——切换 chat。真正把方案定下来的不是隐藏逻辑，而是"注入只做了一次"这个判断。
+基于这个启动前注入的逻辑, 我们甚至可以为 Codex 添加任何本地化的样式, 开发我们想要的功能. 看什么功能不顺眼，看什么页面不喜欢，直接注入自己的代码来修改.
 
 代码在这里，MIT 协议，随便用随便改：
 
@@ -190,6 +194,11 @@ https://github.com/tempest2023/codex-clean
 
 - 文章里已经放了两张图，都在本仓库里：`images/out-of-usage-banner.png`（我到底在去掉什么）、`images/cdp-targets.png`（为什么必须挑对 renderer）。
 - 还想补的话，最值得加的是第 ② 张：DevTools 里 `<aside>` 被选中、旁边能看到 `border` / `rounded-3xl` 那串类的 DOM 截图，它同时解释了"隐藏错了层级"那个坑。
+- 已发布版本（2026-09-17）与本文件的差异只有格式：X Article 会把 markdown 代码块拍平成普通段落。正文文字已与本文件对齐。
+- 文中把重置时间写成 `Xxxxx.` 而不是真实日期，这是发布时的脱敏处理；截图里仍能看到真实日期。
+- 原稿结尾那两条总结（"匹配语义，不要匹配样式" / "能用和可靠是两个不同的问题"）在发布版被换成了"可扩展性"那段。留在这里备用：
+  - **匹配语义，不要匹配样式。** 类名和 DOM 结构都是实现细节，文本才更接近意图。选择匹配文本，让这个东西在改版之后仍然有较大概率继续工作。
+  - **"能用"和"可靠"是两个不同的问题。** v1 在单次会话里完全能用，直到我做了那个再普通不过的动作——切换 chat。真正把方案定下来的不是隐藏逻辑，而是"注入只做了一次"这个判断。
 - 篇幅：中文正文约 1600 字，适合 X Article 长文格式。
 - 如果只发一条 tweet 而不是长文，用这句：
   > Codex Desktop 的 "You're out of Codex and Work usage" 提示框没有任何官方配置能关掉。我最后用 CDP 连进 Electron，找到那个 `<aside>`，把它 `display:none`，再加一个常驻 watcher 让它扛住 React 重渲染和切换 chat。200 行，MIT：https://github.com/tempest2023/codex-clean

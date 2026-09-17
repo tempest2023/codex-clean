@@ -1,28 +1,38 @@
 # X Article draft (English)
 
-> Suggested title: **"The Dismissible Banner That Wasn't"**
+> Suggested title: **"The Usage Banner That Won't Go Away: A Little Surgery on the Codex Desktop App"**
 > Alternate: **"No setting turns it off, so I wrote 200 lines"**
 
 ---
 
-The moment your quota runs out, the Codex desktop app pins a card to the interface:
+The moment your quota runs out, the Codex desktop app pins a persistent reminder to the interface:
 
 ![The banner in the Codex desktop app: "You're out of Codex and Work usage", with Reset usage and Add Credits buttons](images/out-of-usage-banner.png)
 
 ```text
 You’re out of Codex and Work usage
-Your rate limit resets on Sep 19, 1:35 AM.
+Your rate limit resets on Xxxxx.
 Use one of your rate limit resets or add credits to continue now.
 ```
 
 That is not a bug. Telling me I am out of usage is fair. The problem is that it stays there, and I
-see it every time I open the app.
+see it every time I open the app. It actively hurts my day-to-day workflow, because it keeps
+covering the Codex output I am trying to read.
 
-So I set one rule for myself before touching anything: **do not change server logic, do not bypass
-the rate limit, hide only this local UI element.**
+What, you are asking how I am still talking to Codex with no quota left? That is another story. If
+enough people ask in the replies, I will write a separate post about Codex Router.
+
+I really wanted it gone, except there is no close button. I still set one rule for myself before
+touching anything: **do not change server logic, do not bypass the rate limit, hide only this
+local UI element.**
 
 The result is `codex-clean`, a small macOS utility of a bit over 200 lines. Getting there involved
 three dead ends and one rewrite. The process is more interesting than the script, so here it is.
+
+Using it takes about 10 seconds, no setup, and it works with your existing Codex app. (Mac only. On
+Windows, ask your Codex to write a new launcher based on my codex-clean.)
+
+https://github.com/tempest2023/codex-clean
 
 ## 1. There is no official setting
 
@@ -178,6 +188,8 @@ modify server state
 reset usage
 ```
 
+It does not create any security risk for you. It is just a UI change.
+
 All it does is `display: none`. Server-side limits behave exactly as before. You wait when you
 have to wait. The card just stops being in front of your face.
 
@@ -188,14 +200,11 @@ Two honest caveats:
 2. This targets unreleased UI. A redesign can break it. Because it matches text rather than class
    names, the fix is usually one line.
 
-## Two things worth keeping
+## Last
 
-**Match semantics, not styling.** Class names and DOM structure are implementation details. Text
-is closer to intent, and it survives redesigns far more often.
-
-**"Works" and "holds up" are different problems.** Version one worked perfectly inside one
-session, right up until I did something completely ordinary: switched chats. What settled the
-design was not the hiding logic, it was recognizing that injection happened only once.
+Once you have injection-at-launch working, you can add any local styling or feature you want to
+Codex. Anything that annoys you, any screen you dislike, you can just inject your own code and
+change it.
 
 Code is here, MIT, use it and change it:
 
@@ -205,6 +214,17 @@ https://github.com/tempest2023/codex-clean
 
 ## Publishing notes (do not paste into the article)
 
+- This file is aligned with the published Chinese version (2026-09-17). The only differences in the
+  published article are formatting: X Articles flattens markdown code fences into plain paragraphs.
+- The article writes the reset time as `Xxxxx.` instead of the real date. That was deliberate
+  anonymization at publish time; the screenshot still shows the real one.
+- The two closing lessons from the first draft were replaced in the published version by the
+  extensibility paragraph. Kept here for reuse:
+  - **Match semantics, not styling.** Class names and DOM structure are implementation details.
+    Text is closer to intent, and it survives redesigns far more often.
+  - **"Works" and "holds up" are different problems.** Version one worked perfectly inside one
+    session, right up until I did something completely ordinary: switched chats. What settled the
+    design was not the hiding logic, it was recognizing that injection happened only once.
 - Two images are already embedded in this article and live in the repo:
   `images/out-of-usage-banner.png` (what is being removed) and `images/cdp-targets.png` (why the
   target has to be chosen carefully).
