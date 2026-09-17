@@ -1,0 +1,403 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PORT="${CODEX_CLEAN_PORT:-9222}"
+CACHE_DIR="${HOME}/.cache/codex-clean"
+WATCHER_JS="${CACHE_DIR}/watcher.mjs"
+PID_FILE="${CACHE_DIR}/watcher.pid"
+LOG_FILE="${CACHE_DIR}/watcher.log"
+RESTART_APP=0
+
+if [[ "${1:-}" == "--restart" ]]; then
+  RESTART_APP=1
+fi
+
+if [[ -n "${CODEX_CLEAN_APP:-}" ]]; then
+  APP="$CODEX_CLEAN_APP"
+elif [[ -d "/Applications/ChatGPT.app" ]]; then
+  APP="/Applications/ChatGPT.app"
+elif [[ -d "/Applications/Codex.app" ]]; then
+  APP="/Applications/Codex.app"
+else
+  echo "codex-clean: cannot find /Applications/ChatGPT.app or /Applications/Codex.app" >&2
+  echo "Set CODEX_CLEAN_APP=/path/to/App.app if yours is elsewhere." >&2
+  exit 1
+fi
+
+APP_NAME="$(basename "$APP" .app)"
+mkdir -p "$CACHE_DIR"
+
+cdp_ready() {
+  curl -fsS --max-time 1 "http://127.0.0.1:${PORT}/json/version" >/dev/null 2>&1
+}
+
+app_running() {
+  pgrep -x "$APP_NAME" >/dev/null 2>&1
+}
+
+stop_old_watcher() {
+  if [[ -f "$PID_FILE" ]]; then
+    OLD_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if [[ -n "${OLD_PID:-}" ]] && kill -0 "$OLD_PID" 2>/dev/null; then
+      kill "$OLD_PID" 2>/dev/null || true
+      for _ in $(seq 1 20); do
+        kill -0 "$OLD_PID" 2>/dev/null || break
+        sleep 0.1
+      done
+    fi
+    rm -f "$PID_FILE"
+  fi
+}
+
+if ! cdp_ready; then
+  if app_running; then
+    if [[ "$RESTART_APP" -eq 1 ]]; then
+      echo "codex-clean: restarting $APP_NAME with local CDP enabled..."
+      osascript -e "tell application \"$APP_NAME\" to quit" >/dev/null 2>&1 || true
+
+      for _ in $(seq 1 50); do
+        if ! app_running; then
+          break
+        fi
+        sleep 0.2
+      done
+
+      if app_running; then
+        echo "codex-clean: $APP_NAME did not quit in time." >&2
+        exit 1
+      fi
+    else
+      cat >&2 <<EOF
+codex-clean: $APP_NAME is already running, but CDP is not enabled.
+
+Quit it with Cmd-Q, then run:
+  codex-clean
+
+Or let this script restart it:
+  codex-clean --restart
+EOF
+      exit 2
+    fi
+  fi
+
+  echo "codex-clean: launching $APP_NAME..."
+  open -n "$APP" --args \
+    --remote-debugging-address=127.0.0.1 \
+    --remote-debugging-port="$PORT"
+fi
+
+for _ in $(seq 1 75); do
+  if cdp_ready; then
+    break
+  fi
+  sleep 0.2
+done
+
+if ! cdp_ready; then
+  echo "codex-clean: CDP did not become ready on 127.0.0.1:${PORT}" >&2
+  exit 1
+fi
+
+cat > "$WATCHER_JS" <<'NODE'
+const port = Number(process.env.CODEX_CLEAN_PORT || 9222);
+const base = `http://127.0.0.1:${port}`;
+const sessions = new Map();
+
+const source = String.raw`
+(() => {
+  const MARKERS = [
+    "out of Codex and Work usage",
+    "out of Codex usage",
+    "out of Codex messages"
+  ];
+
+  function isUsageBanner(el) {
+    const text = el?.textContent || "";
+    return MARKERS.some(marker => text.includes(marker));
+  }
+
+  function hideUsageBanners(root = document) {
+    if (!root) return 0;
+
+    let hidden = 0;
+
+    // The current Codex UI uses <aside> as the outer usage-card wrapper.
+    for (const aside of root.querySelectorAll?.("aside") || []) {
+      if (isUsageBanner(aside)) {
+        aside.style.setProperty("display", "none", "important");
+        aside.setAttribute("data-codex-clean-hidden", "true");
+        hidden++;
+      }
+    }
+
+    // Fallback: if the wrapper tag changes in a future build, find the marker
+    // and hide the nearest reasonably-sized container containing the whole card.
+    if (!hidden) {
+      const all = root.querySelectorAll?.("*") || [];
+      for (const el of all) {
+        if (!isUsageBanner(el)) continue;
+        if ([...el.children].some(child => isUsageBanner(child))) continue;
+
+        let p = el;
+        while (p && p !== document.body) {
+          const text = p.textContent || "";
+          const rect = p.getBoundingClientRect?.();
+
+          if (
+            MARKERS.some(marker => text.includes(marker)) &&
+            rect &&
+            rect.width > Math.min(500, window.innerWidth * 0.45) &&
+            rect.height > 40 &&
+            rect.height < 260
+          ) {
+            p.style.setProperty("display", "none", "important");
+            p.setAttribute("data-codex-clean-hidden", "true");
+            hidden++;
+            break;
+          }
+          p = p.parentElement;
+        }
+      }
+    }
+
+    return hidden;
+  }
+
+  function install() {
+    hideUsageBanners(document);
+
+    if (window.__codexCleanObserver) {
+      try { window.__codexCleanObserver.disconnect(); } catch {}
+    }
+
+    let queued = false;
+    const observer = new MutationObserver(mutations => {
+      if (queued) return;
+      queued = true;
+
+      requestAnimationFrame(() => {
+        queued = false;
+
+        // Scan the whole document because Codex may replace large React subtrees
+        // when switching chats/routes.
+        hideUsageBanners(document);
+      });
+    });
+
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+
+    // Route changes can happen without a full document reload. Patch History too.
+    const scheduleHide = () => queueMicrotask(() => hideUsageBanners(document));
+
+    if (!window.__codexCleanHistoryPatched) {
+      const oldPush = history.pushState;
+      const oldReplace = history.replaceState;
+
+      history.pushState = function (...args) {
+        const out = oldPush.apply(this, args);
+        scheduleHide();
+        return out;
+      };
+
+      history.replaceState = function (...args) {
+        const out = oldReplace.apply(this, args);
+        scheduleHide();
+        return out;
+      };
+
+      addEventListener("popstate", scheduleHide);
+      addEventListener("hashchange", scheduleHide);
+      window.__codexCleanHistoryPatched = true;
+    }
+
+    // Safety sweep in case the app mutates text/style in a way MutationObserver
+    // does not expose as a child insertion.
+    if (window.__codexCleanInterval) {
+      clearInterval(window.__codexCleanInterval);
+    }
+    window.__codexCleanInterval = setInterval(() => {
+      hideUsageBanners(document);
+    }, 1000);
+
+    window.__codexCleanObserver = observer;
+    window.__codexCleanHide = hideUsageBanners;
+    window.__codexCleanInstalled = true;
+
+    return "installed";
+  }
+
+  if (document.documentElement) {
+    return install();
+  }
+
+  addEventListener("DOMContentLoaded", install, { once: true });
+  return "waiting-for-dom";
+})()
+`;
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function getTargets() {
+  const res = await fetch(`${base}/json`);
+  if (!res.ok) throw new Error(`GET /json failed: ${res.status}`);
+  return await res.json();
+}
+
+function connectTarget(target) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(target.webSocketDebuggerUrl);
+    let nextId = 1;
+    const pending = new Map();
+    let closed = false;
+
+    const call = (method, params = {}) =>
+      new Promise((res, rej) => {
+        if (closed) return rej(new Error("session closed"));
+        const id = nextId++;
+        pending.set(id, { resolve: res, reject: rej });
+        ws.send(JSON.stringify({ id, method, params }));
+      });
+
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      for (const { reject } of pending.values()) {
+        reject(new Error("session closed"));
+      }
+      pending.clear();
+      try { ws.close(); } catch {}
+    };
+
+    ws.addEventListener("open", async () => {
+      try {
+        await call("Page.enable");
+        await call("Runtime.enable");
+
+        // Reinstall on every future document created in this renderer.
+        await call("Page.addScriptToEvaluateOnNewDocument", { source });
+
+        // Install immediately in the current document.
+        await call("Runtime.evaluate", {
+          expression: source,
+          returnByValue: true,
+          awaitPromise: true
+        });
+
+        resolve({ ws, call, close });
+      } catch (err) {
+        close();
+        reject(err);
+      }
+    });
+
+    ws.addEventListener("message", event => {
+      let msg;
+      try { msg = JSON.parse(event.data); } catch { return; }
+      if (!msg.id) return;
+
+      const p = pending.get(msg.id);
+      if (!p) return;
+
+      pending.delete(msg.id);
+      if (msg.error) p.reject(new Error(msg.error.message || "CDP error"));
+      else p.resolve(msg.result);
+    });
+
+    ws.addEventListener("close", () => {
+      closed = true;
+      sessions.delete(target.id);
+    });
+
+    ws.addEventListener("error", () => {
+      if (!closed) {
+        close();
+        reject(new Error("WebSocket connection failed"));
+      }
+    });
+  });
+}
+
+async function ensureTargets() {
+  const targets = await getTargets();
+  const live = new Set();
+
+  for (const target of targets) {
+    if (
+      target.type !== "page" ||
+      typeof target.url !== "string" ||
+      !target.url.startsWith("app://-/index.html") ||
+      !target.webSocketDebuggerUrl
+    ) {
+      continue;
+    }
+
+    live.add(target.id);
+
+    if (!sessions.has(target.id)) {
+      // Reserve the id immediately so the next poll does not connect twice.
+      sessions.set(target.id, null);
+      try {
+        const session = await connectTarget(target);
+        sessions.set(target.id, session);
+        console.log(`[${new Date().toISOString()}] injected: ${target.url} (${target.id})`);
+      } catch (err) {
+        sessions.delete(target.id);
+        console.error(`[${new Date().toISOString()}] inject failed ${target.id}: ${err.message}`);
+      }
+    } else {
+      const session = sessions.get(target.id);
+      // Re-run the hide function periodically in already-connected renderers.
+      if (session) {
+        session.call("Runtime.evaluate", {
+          expression: `window.__codexCleanHide?.(document)`,
+          returnByValue: true
+        }).catch(() => {});
+      }
+    }
+  }
+
+  for (const [id, session] of sessions) {
+    if (!live.has(id)) {
+      session?.close?.();
+      sessions.delete(id);
+    }
+  }
+}
+
+console.log(`[${new Date().toISOString()}] codex-clean watcher started on ${base}`);
+
+while (true) {
+  try {
+    await ensureTargets();
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] watcher poll failed: ${err.message}`);
+  }
+
+  await sleep(750);
+}
+NODE
+
+stop_old_watcher
+
+echo "codex-clean: starting persistent watcher..."
+CODEX_CLEAN_PORT="$PORT" nohup node "$WATCHER_JS" >>"$LOG_FILE" 2>&1 &
+WATCHER_PID=$!
+echo "$WATCHER_PID" > "$PID_FILE"
+
+sleep 1
+
+if ! kill -0 "$WATCHER_PID" 2>/dev/null; then
+  echo "codex-clean: watcher exited unexpectedly. Log:" >&2
+  tail -n 30 "$LOG_FILE" >&2 || true
+  exit 1
+fi
+
+echo "codex-clean: watcher running in background (PID $WATCHER_PID)"
+echo "codex-clean: log: $LOG_FILE"
+echo "codex-clean: it will inject into every current/new app://-/index.html renderer."
